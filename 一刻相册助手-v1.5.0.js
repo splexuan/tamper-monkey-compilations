@@ -3,7 +3,7 @@
 // @namespace     tamper-monkey-compilations
 // @version       1.5.0
 // @description   给一刻相册网页版加上网盘级体验：顶部集中操作栏、单击即选/双击预览、Ctrl/Shift 多选、拖拽框选、Ctrl+A 全选、拖拽上传到当前相册、无时间线文件网格、图片/视频完整缩略图、点击预览遮罩关闭、快速切换相册、小图密集模式、带确认的智能批量下载、自动加载更多、界面精简。
-// @author        小黑
+// @author        lexuan
 // @match         https://photo.baidu.com/*
 // @grant         none
 // @run-at        document-idle

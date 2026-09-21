@@ -3,7 +3,7 @@
 // @namespace     tamper-monkey-compilations
 // @version       0.7.1
 // @description   Twitter/X 文章代码块自动换行，并支持一键截图及导出内嵌图片的 Markdown。
-// @author        Codex
+// @author        lexuan
 // @match         https://x.com/*
 // @match         https://twitter.com/*
 // @require       https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js

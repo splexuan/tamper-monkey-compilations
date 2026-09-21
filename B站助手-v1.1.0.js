@@ -4,7 +4,7 @@
 // @namespace     tamper-monkey-compilations
 // @version       1.1.0
 // @description   在 B 站空间页 / 合集页 / 系列页一键导出全部视频链接。支持 UP 主全部投稿、新版合集、旧版系列，可复制或导出 txt / csv。
-// @author        老弟
+// @author        lexuan
 // @match         https://space.bilibili.com/*
 // @connect       api.bilibili.com
 // @connect       www.bilibili.com
