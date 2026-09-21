@@ -3,7 +3,7 @@
 // @name:en       Bilibili Assistant
 // @namespace     tamper-monkey-compilations
 // @version       1.1.0
-// @description   在 B 站空间页 / 合集页 / 系列页一键导出全部视频链接。支持 UP 主全部投稿、新版合集、旧版系列，可复制或导出 txt / csv。
+// @description   在 B 站空间页 / 合集页 / 系列页一键解析全部视频链接。支持 UP 主全部投稿、新版合集、旧版系列，可复制链接或下载 txt / csv。
 // @author        lexuan
 // @match         https://space.bilibili.com/*
 // @connect       api.bilibili.com
@@ -170,6 +170,7 @@
   async function fetchSeason(mid, sid, onProgress) {
     const items = [];
     for (let pn = 1; pn <= 500; pn++) {
+      if (state.cancelled) break;
       const d = await api('/x/polymer/web-space/seasons_archives_list',
         { mid, season_id: sid, sort_reverse: 'false', page_num: pn, page_size: 30 });
       if (!d || d.code !== 0) throw new Error(`合集接口返回 code=${d && d.code} ${(d && d.message) || ''}`);
@@ -187,6 +188,7 @@
   async function fetchSeries(mid, seid, onProgress) {
     const items = [];
     for (let pn = 1; pn <= 500; pn++) {
+      if (state.cancelled) break;
       const d = await api('/x/series/archives',
         { mid, series_id: seid, only_normal: 'true', sort: 'desc', pn, ps: 30 });
       if (!d || d.code !== 0) throw new Error(`系列接口返回 code=${d && d.code} ${(d && d.message) || ''}`);
@@ -206,6 +208,7 @@
     const keys = await getWbiKeys();
     const items = [];
     for (let pn = 1; pn <= 500; pn++) {
+      if (state.cancelled) break;
       const q = sign({
         mid, ps: 30, pn, tid: 0, keyword: '', order: 'pubdate',
         platform: 'web', web_location: 1550101, order_avoided: 'true',
@@ -229,7 +232,7 @@
   }
 
   /* ==================================================================
-   * 3. 页面识别 + 导出工具
+   * 3. 页面识别 + 解析工具
    * ================================================================*/
   function parsePage() {
     const href = location.href;
@@ -286,8 +289,10 @@
     page: null,
     items: [],
     running: false,
+    cancelled: false,
     collections: null,
     label: '',
+    runLabel: '',
   };
 
   const STYLE = `
@@ -307,6 +312,8 @@
   button{flex:1;padding:8px 10px;border-radius:8px;border:1px solid #e3e5e7;background:#fff;color:#18191c;font-size:13px;cursor:pointer;transition:.15s}
   button:hover:not(:disabled){border-color:#00aeec;color:#00aeec}
   button:disabled{opacity:.5;cursor:not-allowed}
+  button.danger{border-color:#f0c4c0;color:#c0392b}
+  button.danger:hover:not(:disabled){border-color:#c0392b;color:#c0392b}
   button.primary{background:#00aeec;border-color:#00aeec;color:#fff}
   button.primary:hover:not(:disabled){background:#0095d0;border-color:#0095d0;color:#fff}
   .status{font-size:12px;line-height:1.6;color:#61666d;min-height:0}
@@ -344,16 +351,17 @@
         <div class="body">
           <div class="info" id="info">正在识别当前页面…</div>
           <div class="row" id="rowMain">
-            <button class="primary" id="btnRun">开始导出</button>
-            <button id="btnCols" hidden>列出合集</button>
+            <button class="primary" id="btnRun">解析全部投稿</button>
+            <button id="btnCols" hidden title="先列出该 UP 的合集 / 系列，再挑一个解析">选择合集解析</button>
+            <button class="danger" id="btnCancel" hidden title="停止继续拉取，已获取的部分仍可取走">取消</button>
           </div>
           <div class="bar" id="bar" hidden><i></i></div>
           <div class="status" id="status"></div>
           <div class="list" id="list"></div>
           <div class="row" id="rowOut" hidden>
-            <button id="btnCopy">复制链接</button>
-            <button id="btnTxt">下载 TXT</button>
-            <button id="btnCsv">下载 CSV</button>
+            <button id="btnCopy" title="复制为纯文本，每行一条链接，可直接贴给批量下载工具">复制链接</button>
+            <button id="btnTxt" title="保存为 .txt，每行一条链接">下载 TXT</button>
+            <button id="btnCsv" title="保存为 .csv，含标题 / 时长 / 发布时间">下载 CSV</button>
           </div>
         </div>
       </div>`;
@@ -369,6 +377,7 @@
       rowMain: root.querySelector('#rowMain'),
       btnRun: root.querySelector('#btnRun'),
       btnCols: root.querySelector('#btnCols'),
+      btnCancel: root.querySelector('#btnCancel'),
       bar: root.querySelector('#bar'),
       barInner: root.querySelector('#bar > i'),
       status: root.querySelector('#status'),
@@ -406,6 +415,7 @@
     /* --- 按钮绑定 --- */
     ui.btnRun.onclick = onRun;
     ui.btnCols.onclick = onListCollections;
+    ui.btnCancel.onclick = onCancel;
     ui.btnCopy.onclick = onCopy;
     ui.btnTxt.onclick = () => doDownload('txt');
     ui.btnCsv.onclick = () => doDownload('csv');
@@ -427,12 +437,33 @@
     ui.status.className = 'status' + (cls ? ' ' + cls : '');
   }
 
+  function onCancel() {
+    if (!state.running) return;
+    state.cancelled = true;
+    setStatus('正在取消…');
+  }
+
+  function finishExport(n, prefix) {
+    if (!ui) return;
+    ui.rowOut.hidden = n === 0;
+    const pre = prefix ? `「${prefix}」` : '';
+    if (!n) {
+      setStatus(pre + (state.cancelled ? '已取消，没拿到数据。' : '这个范围里没有视频。'), 'err');
+    } else {
+      setStatus(pre + (state.cancelled
+        ? `已取消，已获取 ${n} 条 → 可直接取走。`
+        : `已获取 ${n} 条 → 点下面的按钮取走（复制 / TXT / CSV）。`), 'ok');
+    }
+  }
+
   function setBusy(busy) {
     state.running = busy;
     if (!ui) return;
     ui.btnRun.disabled = busy;
     ui.btnCols.disabled = busy;
-    ui.btnRun.textContent = busy ? '导出中…' : '开始导出';
+    ui.btnRun.textContent = busy ? '解析中…' : (state.runLabel || '解析');
+    ui.btnCancel.hidden = !busy;
+    ui.btnCols.hidden = busy || !(state.page && state.page.type === 'up');
     ui.bar.hidden = !busy;
     if (!busy) ui.barInner.style.width = '0';
   }
@@ -441,7 +472,7 @@
     if (!ui) return;
     const pct = total ? Math.min(100, Math.round(cur / total * 100)) : 30;
     ui.barInner.style.width = pct + '%';
-    setStatus(`${note ? note + '　' : ''}已获取 ${cur}${total ? ' / ' + total : ''} 条`);
+    setStatus(`${note ? note + ' · ' : ''}正在获取 ${cur}${total ? ' / ' + total : ''} 条…`);
   }
 
   function refreshPage() {
@@ -458,18 +489,31 @@
     ui.rowOut.hidden = true;
     ui.list.innerHTML = '';
     setStatus('');
-    const map = {
-      season: () => `当前页面：<em>合集</em>（mid=${page.mid}, sid=${page.sid}）`,
-      series: () => `当前页面：<em>系列</em>（mid=${page.mid}, series=${page.seid}）`,
-      up: () => `当前页面：<em>UP 主空间</em>（mid=${page.mid}）<br>可导出全部投稿，或先列出合集再挑着导。`,
+    const conf = {
+      season: {
+        label: '解析此合集',
+        info: `当前页面：<em>合集</em>（mid=${page.mid}, sid=${page.sid}）<br>解析分两步：先拉取列表，再选复制或下载。`,
+      },
+      series: {
+        label: '解析此系列',
+        info: `当前页面：<em>系列</em>（mid=${page.mid}, series=${page.seid}）<br>解析分两步：先拉取列表，再选复制或下载。`,
+      },
+      up: {
+        label: '解析全部投稿',
+        info: `当前页面：<em>UP 主空间</em>（mid=${page.mid}）<br>解析分两步：先拉取列表，再选复制或下载。<br>只想解析某个合集 / 系列？点「选择合集解析」。`,
+      },
     };
-    ui.info.innerHTML = map[page.type]();
+    const c = conf[page.type];
+    state.runLabel = c.label;
+    ui.btnRun.textContent = c.label;
+    ui.info.innerHTML = c.info;
     ui.btnCols.hidden = page.type !== 'up';
   }
 
   async function onRun() {
     const page = state.page;
     if (!page || page.type === 'unknown' || state.running) return;
+    state.cancelled = false;
     setBusy(true);
     ui.rowOut.hidden = true;
     ui.list.innerHTML = '';
@@ -485,10 +529,7 @@
         state.items = await fetchUp(page.mid, setProgress);
         state.label = `up_${page.mid}`;
       }
-      const n = toLinks(state.items).length;
-      setStatus(`完成，共 ${n} 条视频链接。`, 'ok');
-      ui.barInner.style.width = '100%';
-      ui.rowOut.hidden = n === 0;
+      finishExport(toLinks(state.items).length);
     } catch (e) {
       setStatus(e.message || String(e), 'err');
     } finally {
@@ -505,7 +546,7 @@
     try {
       const { seasons, series } = await fetchCollectionList(page.mid, setProgress);
       state.collections = seasons.concat(series);
-      setStatus(`共 ${seasons.length} 个合集、${series.length} 个系列。`, 'ok');
+      setStatus(`共 ${seasons.length} 个合集、${series.length} 个系列，点右侧「解析」拉取对应内容。`, 'ok');
       renderCollections();
     } catch (e) {
       setStatus(e.message || String(e), 'err');
@@ -525,19 +566,18 @@
       const small = document.createElement('small');
       small.textContent = c.total;
       const btn = document.createElement('button');
-      btn.textContent = '导出';
+      btn.textContent = '解析';
       btn.onclick = async () => {
         if (state.running) return;
+        state.cancelled = false;
         setBusy(true);
-        setStatus(`正在导出「${c.title || c.id}」…`);
+        setStatus(`正在解析「${c.title || c.id}」…`);
         try {
           state.items = c.kind === 'season'
             ? await fetchSeason(state.page.mid, c.id, setProgress)
             : await fetchSeries(state.page.mid, c.id, setProgress);
           state.label = `${c.kind}_${c.id}`;
-          const n = toLinks(state.items).length;
-          setStatus(`「${c.title || c.id}」完成，共 ${n} 条。`, 'ok');
-          ui.rowOut.hidden = n === 0;
+          finishExport(toLinks(state.items).length, c.title || c.id);
         } catch (e) {
           setStatus(e.message || String(e), 'err');
         } finally {
