@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name          Twitter/X 文章助手
 // @namespace     tamper-monkey-compilations
-// @version       0.7.1
-// @description   Twitter/X 文章代码块自动换行，并支持一键截图及导出内嵌图片的 Markdown。
+// @version       0.7.3
+// @description   Twitter/X 帖子详情页支持 Escape 返回，并支持文章截图及导出 Markdown。
 // @author        lexuan
 // @match         https://x.com/*
 // @match         https://twitter.com/*
@@ -1032,6 +1032,48 @@
       refreshPageState();
     }, delay);
   }
+
+  function handleEscapeKey(event) {
+    if (
+      event.key !== 'Escape' ||
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey
+    ) return;
+
+    // 只在帖子详情页处理，避免影响时间线、文章阅读和其他页面的 Escape 行为。
+    if (!/\/status\/\d+/.test(window.location.pathname)) return;
+
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      (activeElement.isContentEditable ||
+        activeElement.closest('input, textarea, select, [role="textbox"], [contenteditable="true"]'))
+    ) return;
+
+    const backButton = document.querySelector('[data-testid="app-bar-back"]') ||
+      document.querySelector(
+        'button[aria-label="Back"], [role="button"][aria-label="Back"], button[aria-label="返回"], [role="button"][aria-label="返回"]',
+      );
+
+    if (backButton instanceof HTMLElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      backButton.click();
+      return;
+    }
+
+    // DOM 标识随 X 页面更新时，退回浏览器历史中的上一页。
+    if (window.history.length > 1) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.history.back();
+    }
+  }
+
+  // 捕获阶段监听，确保 X 自身的快捷键处理不会先截走 Escape。
+  window.addEventListener('keydown', handleEscapeKey, true);
 
   function start() {
     refreshPageState();
